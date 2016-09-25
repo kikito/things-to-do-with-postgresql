@@ -136,7 +136,7 @@
 
 ***
 
-### <del>HStore</del>, <del>JSON</del>, JSONB
+### ~~HStore~~, ~~JSON~~, JSONB
 
 ***
 
@@ -375,6 +375,28 @@ end
 ```ruby
 # db/migrate/*_add_project_ids_index_to_api_requests.rb
 class AddProjectIdsIndexToApiRequests < AR::Migration
+
+  def up
+    add_index :api_requests,
+      expression: "(payload->'project_ids')",
+      name: :index_api_requests_on_payload_project_ids,
+      using: :gin,
+      algorithm: :concurrently
+  end
+
+  def down
+    remove_index :api_requests,
+      name: :index_api_requests_on_payload_project_ids
+  end
+
+end
+```
+
+***
+
+```ruby
+# db/migrate/*_add_project_ids_index_to_api_requests.rb
+class AddProjectIdsIndexToApiRequests < AR::Migration
   disable_ddl_transaction!
 
   def up
@@ -399,6 +421,13 @@ end
 
 ***
 
+TODO: find full-text logos
+
+Apache Solr
+Sphinks
+
+***
+
 ``` ruby
 # Gemfile
 gem 'pg_search'
@@ -407,13 +436,170 @@ gem 'pg_search'
 
 ***
 
+* Multi-search
+* `pg_search_scope`
 
 ***
+
+* ~~Multi-search~~
+* `pg_search_scope` 👍
+
+***
+
+* `:against` option
+* `:tsvector_column` option
+
+***
+
+* ~~`:against` option~~
+* `:tsvector_column` option  💖
+
+***
+
+> You cannot dump a tsvector column to schema.rb
+
+***
+
+> You can~~not~~ dump a tsvector column to schema.rb
+
+***
+
+> You <u>should</u> dump a tsvector column to schema.rb
+
+***
+
+```sql
+$ bin/rails dbconsole
+# select to_tsvector('fat cats ate fat rats');
+            to_tsvector
+-----------------------------------
+ 'ate':3 'cat':2 'fat':1,4 'rat':5
+```
+
+***
+
+
+```ruby
+# db/migrate/*_create_movies.rb
+class CreateMovies < ActiveRecord::Migration
+  def change
+    create_table :movies do |t|
+      t.string :title
+      t.text :summary
+      t.tsvector :tsv
+    end
+
+    add_index :movies, :tsv, using: :gin
+  end
+end
+
+```
+
+***
+
+``` ruby
+class Movie < ActiveRecord::Base
+
+  include PgSearch
+
+  pg_search_scope :pg_search, {
+    against: :ignored,
+    using: {
+      tsearch: { tsvector_column: 'tsv',
+                 dictionary: "spanish",
+                 prefix: true }
+    },
+    ignoring: :accents,
+    ranked_by: '(:tsearch)'
+  }
+
+end
+```
+
+***
+
+``` ruby
+class Movie < ActiveRecord::Base
+  ...
+  before_save :update_tsvector
+
+  def update_tsvector
+    ActiveRecord::Base.connection.execute(
+      update_tsvector_sql)
+  end
+end
+```
+
+***
+
+``` ruby
+
+class Movie < ActiveRecord::Base
+  ...
+
+  def update_tsvector_sql
+    %{ UPDATE movies SET tsv = (
+        TO_TSVECTOR('spanish', #{quote(title)}) ||
+        TO_TSVECTOR('spanish', #{quote(summary)})
+    )}
+  end
+
+  def quote(value)
+    value = '' if value.nil?
+    ActiveRecord::Base.connection.quote(value)
+  end
+
+end
+```
+
+***
+
+``` ruby
+class Movie < ActiveRecord::Base
+  ...
+
+  def update_tsvector_sql
+    %{ UPDATE movies SET tsv = (
+         SETWEIGHT(TO_TSVECTOR('spanish',
+                               #{quote(title)}),
+                   'A')
+         ||
+         SETWEIGHT(TO_TSVECTOR('spanish',
+                               #{quote(summary)}),
+                   'B')
+    )}
+  end
+
+
+end
+
+```
+***
+
+``` ruby
+.
+
+
+
+              movies
+                               'spanish'
+                                       title
+                   'A'
+
+                               'spanish'
+                                       summary
+                   'B'
+
+
+
+
+.
+
+```
+***
+
 
 ## C) Queues
-
-
-***
 
 
 
