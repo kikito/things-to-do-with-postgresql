@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+
+  <head>
+    <meta charset="utf-8">
+
+    <title>Semi-advances postgresql with rails</title>
+
+    <meta name="description" content="Semi-advanced postgresql with Rails">
+    <meta name="author" content="Enrique García Cota">
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+
+    <link rel="stylesheet" href="css/reveal.css">
+    <link rel="stylesheet" href="css/theme/kikito.css" id="theme">
+
+    <!-- Code syntax highlighting -->
+    <link rel="stylesheet" href="lib/css/vs.css">
+
+
+    <!-- Printing and PDF exports -->
+    <script>
+      var link = document.createElement( 'link' );
+      link.rel = 'stylesheet';
+      link.type = 'text/css';
+      link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+      document.getElementsByTagName( 'head' )[0].appendChild( link );
+    </script>
+
+    <!--[if lt IE 9]>
+    <script src="lib/js/html5shiv.js"></script>
+    <![endif]-->
+  </head>
+
+  <body>
+
+    <div class="reveal">
+
+      <!-- Any section element inside of this container is displayed as a slide -->
+      <div class="slides">
+
+        <section data-markdown data-separator="\*\*\*">
+          <script type="text/template">
+
+<!-- .slide: data-background="./img/bg1.jpg" -->
+## Semi-advanced
+# PostgreSQL
+### With rails
+
+<div class="subtitle">
+<p>Enrique García ([@otikik](http://twitter.com/otikik))<p>
+<p><small>
+   **Conferencia Rails 2016**
+   <a href="http://creativecommons.org/licenses/by-nc-sa/3.0/"><img class="plain
+   text" src="./img/cc-by-nc-sa.png" title="Unless otherwise specified, everything here is licensed under CC-by-NC-SA"></a>
+   </small>
+</p>
+
+</div>
+
+***
+
+<!-- .slide: data-background="#008AB8" -->
+
+## I. Intro
+## II. Techniques
+## III. Conclusion
+
+***
+
+# I. Intro
+
+***
+
+<!-- .slide: data-background="#008AB8" -->
+
+<figure class="stretch">
+  <img src="./img/postgresql-logo.svg" class="stretch plain">
+</figure>
+
+***
+<!-- .slide: data-background="#008AB8" -->
+
+### PostgreSQL
+### Postgres
+### Psql
+### Pg
+
+***
+
+<!-- .slide: data-background="#008AB8" -->
+
+> That talk doesn't suit you
+
+***
+
+<figure class="stretch">
+  <a href="https://blog.codinghorror.com/vampires-programmers-versus-werewolves-sysadmins/">
+    <img src="./img/coding-horror-vampires-vs-werewolves.png" class="stretch">
+  </a>
+  https://blog.codinghorror.com/vampires-programmers-versus-werewolves-sysadmins/
+</figure>
+
+***
+
+<figure class="stretch">
+  <img src="./img/vampire.jpg" class="stretch plain">
+</figure>
+
+***
+
+<figure class="stretch">
+  <img src="./img/werewolf.jpg" class="stretch plain">
+</figure>
+
+***
+
+<figure class="stretch">
+  <img src="./img/vampire.jpg" class="stretch plain">
+</figure>
+
+***
+
+# II. Techniques
+
+***
+
+## A) “NoSQL”
+
+***
+
+### HStore, JSON, JSONB
+
+***
+
+### <del>HStore</del>, <del>JSON</del>, JSONB
+
+***
+
+``` ruby
+# db/migrate/*_create_api_requests.rb
+class CreateApiRequests < ActiveRecord::Migration
+  def change
+    create_table :api_requests do |t|
+      t.jsonb :payload, null: false, default: '{}'
+    end
+
+    add_index :api_requests, :payload, using: :gin
+  end
+end
+```
+
+***
+
+``` ruby
+request = ApiRequest.create(payload: {
+  path: "/foo",
+  project_ids: [1, 2, 3]
+})
+
+request.payload
+=> { path: "/foo", project_ids: [1, 2, 3] }
+
+request.payload["path"]
+=> "/foo"
+
+```
+
+***
+``` ruby
+# app/models/api_request.rb
+class ApiRequest < ActiveRecord::Base
+  serialize :payload, HashSerializer
+end
+
+# app/serializers/hash_serializer.rb
+class HashSerializer
+  def self.dump(hash)
+    hash.to_json
+  end
+
+  def self.load(hash)
+    (hash || {}).with_indifferent_access
+  end
+end
+```
+
+***
+
+``` ruby
+request.payload["path"]
+=> "/foo"
+
+request.payload[:path]
+=> "/foo"
+
+```
+
+***
+
+``` ruby
+class ApiRequest < ActiveRecord::Base
+  serialize :payload, HashSerializer
+  store_accessor :payload, :path, :project_ids
+end
+```
+
+***
+
+``` ruby
+request.path
+=> "/foo"
+
+request.project_ids
+=> [1, 2, 3]
+
+```
+
+***
+
+```ruby
+ApiRequest.where("payload @> ?", {path: "/bar"}.to_json)
+```
+***
+
+```ruby
+ApiRequest.where("payload @> ?", {path: "/bar"}.to_json)
+.explain
+=> EXPLAIN for: SELECT "api_requests".*
+                FROM "api_requests"
+                WHERE (payload @> '{"path":"/bar"}')
+
+                QUERY PLAN
+----------------------------------------------------
+Bitmap Heap Scan on api_requests
+  Recheck Cond: (payload @> '{"path": "/bar"}'::jsonb)
+  -> Bitmap Index Scan on index_api_requests_on_payload
+     Index Cond: (payload @> '{"path": "/bar"}'::jsonb)
+```
+
+***
+```ruby
+
+# db/migrate/*_create_api_requests.rb
+class CreateApiRequests < ActiveRecord::Migration
+  def change
+    create_table :api_requests do |t|
+      t.jsonb :payload, null: false, default: '{}'
+    end
+
+    add_index :api_requests, :payload, using: :gin # <=
+  end
+end
+```
+***
+
+```ruby
+ApiRequest.where(
+  "payload->'project_ids' @> ?",
+  1.to_json
+)
+```
+
+***
+
+```ruby
+ApiRequest.where(
+  "payload->'project_ids' @> ?",
+  1.to_json
+).explain
+=> EXPLAIN for: SELECT "api_requests".*
+                FROM "api_requests"
+                WHERE (payload->'project_ids' @> '1')
+
+                QUERY PLAN
+----------------------------------------------------
+Seq Scan on api_requests
+Filter: ((payload -> 'project_ids'::text) @> '1'::jsonb)
+```
+
+***
+
+```ruby
+# db/migrate/*_add_project_ids_index_to_api_requests.rb
+class AddProjectIdsIndexToApiRequests < AR::Migration
+  def change
+    execute <<-SQL
+      CREATE INDEX api_requests_project_ids_index
+      ON api_requests ((payload->'project_ids'))
+    SQL
+  end
+end
+
+# config/initializers/active_record.rb
+Rails.application.config
+  .active_record.schema_format = :sql
+```
+
+***
+
+```ruby
+# Gemfile
+...
+gem "schema_plus_pg_indexes"
+```
+***
+
+```ruby
+# Gemfile
+...
+gem "schema_plus_pg_indexes" # v0.1.12
+```
+***
+
+```ruby
+# db/migrate/*_add_project_ids_index_to_api_requests.rb
+class AddProjectIdsIndexToApiRequests < AR::Migration
+
+  def up
+    add_index :api_requests,
+      expression: "(payload->'project_ids')",
+      name: :index_api_requests_on_payload_project_ids,
+      using: :gin
+  end
+
+  def down
+    remove_index :api_requests,
+      name: :index_api_requests_on_payload_project_ids
+  end
+
+end
+```
+
+***
+
+```ruby
+ApiRequest.where(
+  "payload->'project_ids' @> ?",
+  1.to_json
+).explain
+        QUERY PLAN
+---------------------------------------------------
+Bitmap Heap Scan on api_requests
+Recheck Cond: ((payload -> 'project_ids') @> '1')
+-> Bitmap Index Scan on
+     index_api_requests_on_payload_project_ids
+Index Cond: ((payload -> 'project_ids') @> '1')
+```
+***
+
+```ruby
+# db/migrate/*_add_project_ids_index_to_api_requests.rb
+class AddProjectIdsIndexToApiRequests < AR::Migration
+
+  def up
+    add_index :api_requests,
+      expression: "(payload->'project_ids')",
+      name: :index_api_requests_on_payload_project_ids,
+      using: :gin
+  end
+
+  def down
+    remove_index :api_requests,
+      name: :index_api_requests_on_payload_project_ids
+  end
+
+end
+```
+
+***
+
+```ruby
+# db/migrate/*_add_project_ids_index_to_api_requests.rb
+class AddProjectIdsIndexToApiRequests < AR::Migration
+  disable_ddl_transaction!
+
+  def up
+    add_index :api_requests,
+      expression: "(payload->'project_ids')",
+      name: :index_api_requests_on_payload_project_ids,
+      using: :gin,
+      algorithm: :concurrently
+  end
+
+  def down
+    remove_index :api_requests,
+      name: :index_api_requests_on_payload_project_ids
+  end
+
+end
+```
+
+***
+
+## B) Full-text search
+
+***
+
+``` ruby
+# Gemfile
+gem 'pg_search'
+
+```
+
+***
+
+
+***
+
+## C) Queues
+
+
+***
+
+
+
+
+***
+
+# III. Conclusion
+
+***
+
+<!-- .slide: data-background="./img/questions.jpg" -->
+
+# ¿Preguntas?
+
+***
+
+<!-- .slide: data-background="./img/thank-you.jpg" -->
+
+***
+
+# References
+
+***
+
+### Hstore, json, jsonb
+
+* https://www.citusdata.com/blog/2016/07/14/choosing-nosql-hstore-json-jsonb/
+* http://nandovieira.com/using-postgresql-and-jsonb-with-ruby-on-rails
+
+### Concurrent index creation
+
+* https://robots.thoughtbot.com/how-to-create-postgres-indexes-concurrently-in
+
+### Advanced gems in general
+
+* http://www.brightball.com/articles/rails-gems-to-unlock-advanced-postgresql-features
+
+***
+
+          </script>
+        </section>
+      </div>
+
+    </div>
+
+    <script src="lib/js/head.min.js"></script>
+    <script src="js/reveal.js"></script>
+
+    <script>
+
+      // Full list of configuration options available at:
+      // https://github.com/hakimel/reveal.js#configuration
+      Reveal.initialize({
+        controls: true,
+        progress: true,
+        history: true,
+
+        width: 960,
+        height: 700,
+
+        margin: 0.1,
+
+        // Bounds for smallest/largest possible scale to apply to content
+        minScale: 0.2,
+        maxScale: 1,
+
+        center: true,
+
+        theme: 'kikito',
+        transition: 'fade', // default/cube/page/concave/zoom/linear/fade/none
+        transitionSpeed: 'fast',
+
+        // Optional reveal.js plugins
+        dependencies: [
+          { src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+          { src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+          { src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+          { src: 'plugin/highlight/highlight.js', async: true, condition: function() { return true; }, callback: function() { hljs.initHighlightingOnLoad(); } },
+          { src: 'plugin/zoom-js/zoom.js', async: true },
+          { src: 'plugin/notes/notes.js', async: true }
+        ]
+      });
+
+    </script>
+
+  </body>
+</html>
