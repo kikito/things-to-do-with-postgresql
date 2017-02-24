@@ -313,6 +313,13 @@ ApiRequest.where("payload @> ?", {path: "/bar"}.to_json)
 ```ruby
 ApiRequest.where("payload @> ?", {path: "/bar"}.to_json)
 .explain
+```
+
+***
+
+```ruby
+ApiRequest.where("payload @> ?", {path: "/bar"}.to_json)
+.explain
 => EXPLAIN for: SELECT "api_requests".*
                 FROM "api_requests"
                 WHERE (payload @> '{"path":"/bar"}')
@@ -323,6 +330,22 @@ Bitmap Heap Scan on api_requests
   Recheck Cond: (payload @> '{"path": "/bar"}'::jsonb)
   -> Bitmap Index Scan on index_api_requests_on_payload
      Index Cond: (payload @> '{"path": "/bar"}'::jsonb)
+```
+
+***
+```ruby
+ApiRequest.where("payload @> ?", {path: "/bar"}.to_json)
+.explain
+=> EXPLAIN for: SELECT "api_requests".*
+                FROM "api_requests"
+                WHERE (payload @> '{"path":"/bar"}')
+
+                QUERY PLAN
+----------------------------------------------------
+Bitmap Heap Scan on api_requests
+  Recheck Cond: (payload @> '{"path": "/bar"}'::jsonb)
+  -> Bitmap Index Scan on index_api_requests_on_payload
+ ➡️  Index Cond: (payload @> '{"path": "/bar"}'::jsonb)
 ```
 
 ***
@@ -588,11 +611,6 @@ gem 'textacular'
 
 ``` ruby
 gem 'pg_search'
-```
-
-***
-``` SQL
-SELECT TO_TSVECTOR([fields]) @@ TO_TSQUERY('query')
 ```
 
 ***
